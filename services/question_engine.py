@@ -11,10 +11,6 @@ def generate_questions(resume_data, role, total_questions=5):
 
     questions_pool = []
 
-    # --------------------------
-    # Skill-based
-    # --------------------------
-    
     # Skill-based
     for skill in resume_data["skills"]:
         if skill in SKILL_QUESTIONS:
@@ -24,9 +20,7 @@ def generate_questions(resume_data, role, total_questions=5):
                     "reference_answer": q["reference"]
                 })
 
-    # --------------------------
     # Project-based
-    # --------------------------
     for project in resume_data["projects"]:
         for template in PROJECT_TEMPLATES:
             questions_pool.append({
@@ -38,9 +32,7 @@ def generate_questions(resume_data, role, total_questions=5):
                 )
             })
 
-    # --------------------------
     # Experience-based
-    # --------------------------
     for exp in resume_data["experience"]:
         for template in EXPERIENCE_TEMPLATES:
             questions_pool.append({
@@ -52,9 +44,7 @@ def generate_questions(resume_data, role, total_questions=5):
                 )
             })
 
-    # --------------------------
     # Behavioral
-    # --------------------------
     for q in BEHAVIORAL_TEMPLATES:
         questions_pool.append({
             "question": q["question"],
