@@ -1,219 +1,18 @@
-import random
 import re
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+from utils.fluency_analyzer import calculate_wpm, estimate_pauses, fluency_score
 
-# ---- STEMMING SUPPORT ----
 import nltk
 from nltk.stem import PorterStemmer
 
 stemmer = PorterStemmer()
-# --------------------------
-
-# -------------------------------------
-# Generic Software Engineering Questions
-# -------------------------------------
-
-GENERAL_QUESTIONS = [
-
-    {
-        "question": "What are REST principles?",
-        "reference_answer": "REST is an architectural style that uses stateless communication between client and server. It relies on resources identified by URIs and standard HTTP methods like GET, POST, PUT, and DELETE. It emphasizes scalability, cacheability, and a uniform interface."
-    },
-
-    {
-        "question": "Difference between PUT and PATCH?",
-        "reference_answer": "PUT replaces the entire resource while PATCH updates only specific fields of a resource. PUT is idempotent and usually requires the full object, whereas PATCH modifies partial data."
-    },
-
-    {
-        "question": "How do you debug complex issues?",
-        "reference_answer": "Debugging complex issues involves reproducing the problem, analyzing logs and stack traces, isolating the failing component, testing hypotheses, and using debugging tools or breakpoints. After identifying the root cause, the fix is implemented and verified through testing."
-    },
-
-    {
-        "question": "What is middleware in Express.js?",
-        "reference_answer": "Middleware in Express.js is a function that runs during the request-response cycle. It has access to the request object, response object, and the next function. Middleware is used for tasks such as logging, authentication, validation, and error handling."
-    },
-
-    {
-        "question": "Explain the Global Interpreter Lock (GIL).",
-        "reference_answer": "The Global Interpreter Lock is a mutex used in CPython that ensures only one thread executes Python bytecode at a time. It simplifies memory management but limits parallel execution of CPU-bound threads."
-    },
-
-    {
-        "question": "Explain multithreading vs multiprocessing in Python.",
-        "reference_answer": "Multithreading runs multiple threads within the same process sharing memory, but in CPython it is limited by the GIL. Multiprocessing uses multiple processes with separate memory spaces and allows true parallel execution on multiple CPU cores."
-    },
-
-    {
-        "question": "What is caching and why is it important?",
-        "reference_answer": "Caching stores frequently accessed data in fast memory to reduce database queries and improve application performance. Systems often use tools like Redis or in-memory caches."
-    },
-
-    {
-        "question": "What are microservices?",
-        "reference_answer": "Microservices is an architectural style where applications are built as small independent services communicating through APIs. Each service handles a specific business capability and can be deployed independently."
-    },
-
-    {
-        "question": "What is horizontal vs vertical scaling?",
-        "reference_answer": "Horizontal scaling adds more machines or servers to distribute load, while vertical scaling increases resources such as CPU or RAM on a single machine."
-    },
-
-    {
-        "question": "What is a load balancer?",
-        "reference_answer": "A load balancer distributes incoming network traffic across multiple servers to ensure high availability, reliability, and efficient resource usage."
-    }
-
-]
-
-# -------------------------------------
-# Skill Based Question Templates
-# -------------------------------------
-
-SKILL_QUESTIONS = {
-
-    "Python": [
-        (
-            "Explain decorators in Python.",
-            "Decorators are functions that modify the behavior of another function without changing its code. They wrap a function and add additional functionality such as logging or authentication."
-        ),
-        (
-            "What are generators in Python?",
-            "Generators are functions that return an iterator using yield. They allow lazy evaluation and generate values one at a time instead of storing them all in memory."
-        )
-    ],
-
-    "React.js": [
-        (
-            "Explain the useEffect hook in React.",
-            "useEffect is used to handle side effects in React functional components such as API calls or subscriptions. It runs after rendering and can be controlled using dependency arrays."
-        ),
-        (
-            "What is the virtual DOM?",
-            "The virtual DOM is a lightweight JavaScript representation of the real DOM. React updates the virtual DOM first and then efficiently updates the real DOM using a diffing algorithm."
-        )
-    ],
-
-    "Node.js": [
-        (
-            "What is event-driven architecture in Node.js?",
-            "Node.js uses an event-driven architecture where operations run asynchronously and callbacks or events handle responses without blocking the main thread."
-        ),
-        (
-            "What is the event loop?",
-            "The event loop is the mechanism that allows Node.js to perform non-blocking operations by delegating tasks to the system and processing callbacks when they are completed."
-        )
-    ]
-
-}
-
-# -------------------------------------
-# Project Based Questions
-# -------------------------------------
-
-PROJECT_QUESTIONS = [
-
-    (
-        "Explain the architecture you used in {project}.",
-        "A good answer should explain the system architecture, technologies used, data flow, and how components interact."
-    ),
-
-    (
-        "What improvements would you make to {project} today?",
-        "A good answer should discuss scalability, performance optimization, better architecture, caching, or improved user experience."
-    ),
-
-    (
-        "What was the most challenging problem while building {project}?",
-        "A good answer should explain a technical challenge, debugging approach, and the final solution."
-    ),
-
-    (
-        "How would you scale {project} to 1 million users?",
-        "A good answer should discuss load balancing, caching, database scaling, CDN usage, and cloud deployment."
-    )
-
-]
-
-# -------------------------------------
-# Experience Based Questions
-# -------------------------------------
-
-EXPERIENCE_QUESTIONS = [
-
-    (
-        "What was your biggest technical challenge as {role}?",
-        "A good answer should describe a real problem faced during work, the debugging process, and how it was solved."
-    ),
-
-    (
-        "What did you learn during your role as {role}?",
-        "A good answer should explain technical skills learned, tools used, and lessons gained from real-world development."
-    ),
-
-    (
-        "How did you collaborate with your team during {role}?",
-        "A good answer should explain teamwork, version control usage, communication, and problem solving in a team environment."
-    )
-
-]
-
-# -------------------------------------
-# Main Question Generator
-# -------------------------------------
-
-def generate_questions(resume_data, role):
-
-    questions = []
-
-    skills = resume_data.get("skills", [])
-    projects = resume_data.get("projects", [])
-    experience = resume_data.get("experience", [])
-
-    # Add general questions
-    questions.extend(GENERAL_QUESTIONS)
-
-    # Add skill based questions
-    for skill in skills:
-        if skill in SKILL_QUESTIONS:
-            for q, a in SKILL_QUESTIONS[skill]:
-                questions.append({
-                    "question": q,
-                    "reference_answer": a
-                })
-
-    # Add project questions
-    for proj in projects:
-        project_name = proj["name"]
-
-        for q, a in PROJECT_QUESTIONS:
-            questions.append({
-                "question": q.replace("{project}", project_name),
-                "reference_answer": a
-            })
-
-    # Add experience questions
-    for exp in experience:
-        role_name = exp["role"]
-
-        for q, a in EXPERIENCE_QUESTIONS:
-            questions.append({
-                "question": q.replace("{role}", role_name),
-                "reference_answer": a
-            })
-
-    random.shuffle(questions)
-
-    return questions[:5]
-
-# -------------------------------------
-# Evaluation Engine
-# -------------------------------------
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
+# -------------------------------
+# KEEP YOUR FULL FILLER WORDS ✅
+# -------------------------------
 FILLER_WORDS = [
 "um","uh","like","basically","actually","you know","i mean","sort of","kind of",
 "well","so","okay","right","hmm","ah","uhh","umm","huh",
@@ -231,140 +30,100 @@ FILLER_WORDS = [
 "you know basically","i would say","i would think"
 ]
 
+# -------------------------------
+# KEEP YOUR FULL TECH TERMS ✅
+# -------------------------------
 TECHNICAL_TERMS = [
-
-# Programming
+# (KEEP YOUR FULL LIST — DO NOT CHANGE)
 "algorithm","data structure","time complexity","space complexity",
-"optimization","recursion","iteration","dynamic programming",
-"greedy algorithm","backtracking","divide and conquer",
-"hashing","hash table","binary search","two pointer",
-"sliding window","bit manipulation","graph","tree","binary tree",
-"binary search tree","heap","priority queue","stack","queue",
-"linked list","trie","segment tree","disjoint set","union find",
-
-# Concurrency
-"thread","process","concurrency","parallelism",
-"multithreading","multiprocessing","mutex","lock","deadlock",
-"race condition","synchronization","semaphore","atomic operation",
-
-# Backend
-"api","rest","restful","endpoint","request","response","http",
-"https","middleware","authentication","authorization",
-"jwt","token","session","stateless","stateful","cookie",
-"rate limiting","throttling","web server","application server",
-
-# Databases
-"database","sql","nosql","mongodb","mysql","postgresql",
-"redis","cassandra","dynamodb","query","index","indexing",
-"schema","replication","sharding","transaction",
-"acid","consistency","isolation","durability",
-"normalization","denormalization","foreign key",
-"primary key","database optimization",
-
-# Scalability
-"scalability","horizontal scaling","vertical scaling",
-"load balancer","cluster","distributed system",
-"high availability","fault tolerance","auto scaling",
-"replication","distributed computing",
-
-# Performance
-"caching","redis","memcached","latency","throughput",
-"performance","optimization","profiling","benchmarking",
-"pagination","lazy loading","compression","cdn",
-
-# DevOps
-"docker","container","containerization","kubernetes",
-"deployment","ci","cd","pipeline","continuous integration",
-"continuous deployment","monitoring","logging",
-"prometheus","grafana","terraform","ansible",
-
-# Architecture
-"microservices","monolith","event driven architecture",
-"message queue","pubsub","service architecture",
-"service mesh","api gateway","service discovery",
-"event streaming","domain driven design",
-
-# Message Brokers
-"kafka","rabbitmq","activemq","message broker",
-"event streaming","stream processing",
-
-# Frontend
-"react","angular","vue","virtual dom","component",
-"hook","useeffect","usestate","state management",
-"redux","context api","render","frontend",
-"responsive design","single page application",
-
-# Networking
-"dns","tcp","udp","protocol","cdn","gateway",
-"http protocol","websocket","socket","load balancing",
-"reverse proxy","nginx","apache server",
-
-# Security
-"encryption","hashing","ssl","tls","oauth",
-"authentication","authorization","csrf","xss",
-"input validation","secure communication",
-
-# Cloud
-"aws","azure","gcp","cloud computing","serverless",
-"lambda","ec2","s3","cloud storage",
-"distributed storage","edge computing",
-
-# Machine Learning
-"machine learning","deep learning","neural network",
-"training data","model training","feature engineering",
-"supervised learning","unsupervised learning",
-"classification","regression","clustering",
-"decision tree","random forest","svm","kmeans",
-"gradient descent","loss function","overfitting",
-"underfitting","cross validation",
-
-# Software Engineering
-"software architecture","design pattern",
-"mvc","solid principles","clean architecture",
-"unit testing","integration testing","test coverage",
-"version control","git","github","pull request",
-"code review","debugging","logging system"
+"optimization","recursion","iteration","dynamic programming","multithreading","multiprocessing","thread","process",
+"gil","cpu","cpu-bound","io","io-bound",
+"parallelism","concurrency","memory","shared memory",
+"core","multi-core","synchronization"
+# ... (keep everything exactly same)
 ]
 
-# ---- STEM HELPER FUNCTION ----
-
+# -------------------------------
+# STEM FUNCTIONS
+# -------------------------------
 def stem_text(text):
-
     words = re.findall(r'\b\w+\b', text.lower())
-
-    stems = []
-
-    for w in words:
-        stems.append(stemmer.stem(w))
-
-    return stems
-
-
-# ---- PREPROCESS TECH TERMS ----
+    return [stemmer.stem(w) for w in words]
 
 STEMMED_TECH_TERMS = set()
-
 for term in TECHNICAL_TERMS:
-
-    words = term.lower().split()
-
-    for w in words:
+    for w in term.split():
         STEMMED_TECH_TERMS.add(stemmer.stem(w))
 
-def evaluate_answer(answer, reference_answer):
+# -------------------------------
+# EMOTION
+# -------------------------------
+def detect_emotion(confidence, fluency, pauses, filler_count, word_count):
+
+    if confidence >= 8 and fluency >= 8:
+        return "Confident 😄"
+
+    if pauses > 4 or filler_count > 5:
+        return "Nervous 😟"
+
+    if word_count < 15:
+        return "Uncertain 🤔"
+
+    if fluency < 5:
+        return "Hesitant 😐"
+
+    return "Neutral 🙂"
+
+
+# =====================================
+# MAIN FUNCTION
+# =====================================
+def evaluate_answer(answer, reference_answer, start_time, end_time):
+    if start_time is None or end_time is None:
+        duration = 1
+    else:
+        duration = end_time - start_time
+
+    if duration <= 0:
+        duration = 1
 
     score = 0
-    feedback = []
 
+    feedback = []
     answer_lower = answer.lower()
 
     word_count = len(answer.split())
+
+    # -------------------------------
+    # SAFE TIME
+    # -------------------------------
+    if start_time is None or end_time is None:
+        duration = 1
+    else:
+        duration = end_time - start_time
+
+    if duration <= 0:
+        duration = 1
+
+    # -------------------------------
+    # FLUENCY
+    # -------------------------------
+    wpm = calculate_wpm(answer, start_time, end_time)
+    pauses = estimate_pauses(answer, duration)
+    fluency = fluency_score(wpm, pauses)
+
+    # -------------------------------
+    # LENGTH
+    # -------------------------------
     length_score = min(10, int(word_count / 8))
     score += length_score
 
     if word_count < 20:
         feedback.append("Answer is too short.")
 
+    # -------------------------------
+    # FILLERS
+    # -------------------------------
     filler_count = sum(answer_lower.count(word) for word in FILLER_WORDS)
     filler_score = max(0, 10 - filler_count * 2)
     score += filler_score
@@ -372,8 +131,10 @@ def evaluate_answer(answer, reference_answer):
     if filler_count > 3:
         feedback.append("Too many filler words.")
 
-    sentences = re.split(r'[.!?]', answer)
-    sentences = [s for s in sentences if s.strip() != ""]
+    # -------------------------------
+    # STRUCTURE
+    # -------------------------------
+    sentences = [s for s in re.split(r'[.!?]', answer) if s.strip()]
 
     if len(sentences) >= 3:
         structure_score = 10
@@ -385,22 +146,37 @@ def evaluate_answer(answer, reference_answer):
 
     score += structure_score
 
+    # -------------------------------
+    # EXPLANATION
+    # -------------------------------
+    avg_len = word_count / max(1, len(sentences))
+
+    explanation_score = 5
+
+    if avg_len > 8:
+        explanation_score += 2
+
+    if any(w in answer_lower for w in ["because", "therefore", "so", "as a result"]):
+        explanation_score += 3
+
+    score += explanation_score
+
+    # -------------------------------
+    # TECH DEPTH
+    # -------------------------------
     tech_hits = sum(1 for term in TECHNICAL_TERMS if term in answer_lower)
 
-# ---- STEM BASED DETECTION ----
-    answer_stems = stem_text(answer)
-
-    for stem_word in answer_stems:
+    for stem_word in stem_text(answer):
         if stem_word in STEMMED_TECH_TERMS:
             tech_hits += 1
-# ------------------------------
 
-    tech_score = min(20, tech_hits * 3)
+    tech_score = min(15, tech_hits * 2)
     score += tech_score
+        
 
-    if tech_hits < 2:
-        feedback.append("Technical depth appears weak.")
-
+    # -------------------------------
+    # SEMANTIC
+    # -------------------------------
     try:
         embeddings = model.encode([answer, reference_answer])
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
@@ -410,14 +186,67 @@ def evaluate_answer(answer, reference_answer):
 
     score += semantic_score
 
+    if tech_hits < 2 and semantic_score < 20:
+        feedback.append("Technical depth appears weak.")
+
     if semantic_score < 15:
         feedback.append("Answer does not align well with expected explanation.")
 
+    # -------------------------------
+    # VOCAB
+    # -------------------------------
     unique_words = len(set(answer_lower.split()))
-    diversity_ratio = unique_words / max(1, word_count)
+    score += int((unique_words / max(1, word_count)) * 10)
 
-    vocab_score = int(diversity_ratio * 10)
-    score += vocab_score
+    # -------------------------------
+    # CONFIDENCE
+    # -------------------------------
+    confidence = 10
+
+    if pauses > 3: confidence -= 2
+    if filler_count > 3: confidence -= 2
+    if word_count < 25: confidence -= 2
+
+    confidence = max(3, confidence)
+
+    emotion = detect_emotion(confidence, fluency, pauses, filler_count, word_count)
+
+    # -------------------------------
+    # FINAL ADD
+    # -------------------------------
+    score += fluency * 2
+    score += confidence * 2
+
+    # -------------------------------
+    # LOW QUALITY
+    # -------------------------------
+    # KEEP YOUR EXISTING FILE EXACTLY
+# ONLY ADD THIS FIX BELOW
+
+# SAFE TIME FIX (ADD INSIDE evaluate_answer)
+
+    if start_time is None or end_time is None:
+        duration = 1
+    else:
+        duration = end_time - start_time
+
+    if duration <= 0:
+        duration = 1
+
+
+    # LOW QUALITY FIX (REPLACE EXISTING BLOCK)
+
+    is_low = word_count < 10 or semantic_score < 10
+
+    if is_low:
+        if word_count < 5:
+            score = 20
+        elif word_count < 10:
+            score = 30
+        else:
+            score = min(score, 40)
+
+        feedback.append("Response appears irrelevant or random.")
 
     final_score = min(100, score)
 
@@ -426,6 +255,11 @@ def evaluate_answer(answer, reference_answer):
         "semantic_score": semantic_score,
         "technical_score": tech_score,
         "structure_score": structure_score,
-        "vocab_score": vocab_score,
+        "vocab_score": int((unique_words / max(1, word_count)) * 10),
+        "fluency_score": fluency,
+        "confidence_score": confidence,
+        "wpm": wpm,
+        "pauses": pauses,
+        "emotion": emotion,
         "feedback": feedback
     }

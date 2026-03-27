@@ -7,30 +7,20 @@ from streamlit_mic_recorder import mic_recorder
 
 from services.resume_parser import extract_text_from_pdf, parse_resume
 from services.question_engine import generate_questions
-from utils.text_cleaner import clean_resume_text
+from utils.tts import speak_question
 from services.evaluation_engine import evaluate_answer
 
-
-# ---------------------------
-# Load Whisper Model
-# ---------------------------
 
 model = whisper.load_model("base")
 
 
-# ---------------------------
-# Speech → Text
-# ---------------------------
-
 def speech_to_text(audio_bytes):
-
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
         result = model.transcribe(tmp_path)
-
         return result["text"]
 
     except Exception as e:
@@ -38,10 +28,7 @@ def speech_to_text(audio_bytes):
         return ""
 
 
-# ---------------------------
-# Session State
-# ---------------------------
-
+# SESSION
 if "started" not in st.session_state:
     st.session_state.started = False
 
@@ -57,175 +44,158 @@ if "answers" not in st.session_state:
 if "start_time" not in st.session_state:
     st.session_state.start_time = None
 
+if "question_start_time" not in st.session_state:
+    st.session_state.question_start_time = None
 
-# ---------------------------
-# UI
-# ---------------------------
 
 st.title("AI Interview Maker")
 
 role = st.selectbox(
     "Select role:",
-    ["Full Stack Developer", "Machine Learning Engineer"]
+    [
+        "Full Stack Developer",
+        "Frontend Developer",
+        "Backend Developer",
+        "Software Engineer",
+        "Machine Learning Engineer",
+        "Data Scientist",
+        "DevOps Engineer",
+        "Cloud Engineer"
+    ]
 )
 
 uploaded_file = st.file_uploader("Upload Resume", type=["pdf"])
 
 
-# ---------------------------
-# Resume Processing
-# ---------------------------
-
 if uploaded_file and not st.session_state.started:
 
     raw_text = extract_text_from_pdf(uploaded_file)
-
-    st.subheader("RAW TEXT DEBUG")
-    st.write("Length of raw_text:", len(raw_text))
-    st.code(raw_text[:2000])
-
     resume_data = parse_resume(raw_text)
 
-    st.subheader("Parsed Resume Data")
-    st.write(resume_data)
-
     if st.button("Start Interview"):
+
         st.session_state.questions = generate_questions(resume_data, role)
-        st.session_state.current_q = 0
+
+        if not st.session_state.questions:
+            st.error("No questions generated.")
+            st.stop()
+
         st.session_state.started = True
+        st.session_state.current_q = 0
         st.session_state.start_time = time.time()
         st.session_state.answers = {}
+
         st.rerun()
 
-
-# ---------------------------
-# Interview Mode
-# ---------------------------
 
 if st.session_state.started:
 
     elapsed = time.time() - st.session_state.start_time
     remaining = 600 - int(elapsed)
 
-    minutes = max(0, remaining // 60)
-    seconds = max(0, remaining % 60)
+    st.subheader(f"⏳ Time Remaining: {remaining//60}:{remaining%60:02d}")
 
-    st.subheader(f"⏳ Time Remaining: {minutes}:{seconds:02d}")
+    if st.session_state.current_q < len(st.session_state.questions):
 
-    if remaining <= 0:
-        st.warning("Time's up! Interview Ended.")
-        st.session_state.started = False
+        q_data = st.session_state.questions[st.session_state.current_q]
+
+        question = q_data["question"]
+        reference_answer = q_data["reference_answer"]
+
+        # 🔥 FIX TIMER
+        if st.session_state.question_start_time is None:
+            st.session_state.question_start_time = time.time()
+
+        st.subheader(f"Question {st.session_state.current_q + 1}")
+        st.write(question)
+        # ---------------------------
+# 🎤 Voice Recorder (RESTORE THIS)
+# ---------------------------
+        st.write("🎤 Record your answer")
+
+        audio = mic_recorder(
+            start_prompt="Start Recording",
+            stop_prompt="Stop Recording",
+            just_once=True,
+            key=f"recorder_{st.session_state.current_q}"
+        )
+
+        if audio and "bytes" in audio:
+
+            voice_text = speech_to_text(audio["bytes"])
+
+            if voice_text:
+                st.success("Voice detected")
+                st.write("🗣 Recognized:", voice_text)
+
+                st.session_state[f"answer_{st.session_state.current_q}"] = voice_text
+
+                st.rerun()
+
+        audio_file = speak_question(question)
+        st.audio(audio_file)
+
+        answer = st.session_state.get(
+            f"answer_{st.session_state.current_q}", 
+            ""
+        )
+
+        answer = st.text_area(
+            "Your Answer:",
+            value=answer,
+            key=f"answer_{st.session_state.current_q}"
+        )
+
+        if answer and st.button("Next Question"):
+
+            end_time = time.time()
+            start_time = st.session_state.question_start_time
+
+            st.session_state.answers[st.session_state.current_q] = {
+                "answer": answer,
+                "start_time": start_time,
+                "end_time": end_time
+            }
+
+            st.session_state.question_start_time = None
+            st.session_state.current_q += 1
+            st.rerun()
 
     else:
 
-        if st.session_state.current_q < len(st.session_state.questions):
+        st.success("Interview Completed!")
 
-            question_data = st.session_state.questions[st.session_state.current_q]
+        total = 0
+        results = []
 
-            question = question_data["question"]
-            reference_answer = question_data["reference_answer"]
+        for i, data in st.session_state.answers.items():
 
-            st.subheader(f"Question {st.session_state.current_q + 1}")
-            st.write(question)
+            q_data = st.session_state.questions[i]
 
-            # ---------------------------
-            # Voice Recorder
-            # ---------------------------
-
-            st.write("🎤 Record your answer")
-
-            audio = mic_recorder(
-                start_prompt="Start Recording",
-                stop_prompt="Stop Recording",
-                just_once=True,
-                key=f"recorder_{st.session_state.current_q}"
+            result = evaluate_answer(
+                data["answer"],
+                q_data["reference_answer"],
+                data["start_time"],
+                data["end_time"]
             )
 
-            if audio and "bytes" in audio:
+            total += result["total_score"]
 
-                voice_text = speech_to_text(audio["bytes"])
+            results.append((q_data["question"], data["answer"], result))
 
-                if voice_text:
-                    st.success("Voice detected")
-                    st.write("🗣 Recognized:", voice_text)
+        overall = total // len(results) if results else 0
 
-                    st.session_state[f"answer_{st.session_state.current_q}"] = voice_text
+        st.subheader(f"Overall Score: {overall}/100")
 
-                    st.rerun()
+        for q, a, r in results:
+            st.write("Q:", q)
+            st.write("A:", a)
+            st.write("Score:", r["total_score"])
+            st.write("Emotion:", r["emotion"])
+            st.write("Fluency:", r["fluency_score"])
+            st.write("Confidence:", r["confidence_score"])
 
-            # ---------------------------
-            # Text Answer
-            # ---------------------------
+            for f in r["feedback"]:
+                st.write("-", f)
 
-            answer = st.text_area(
-                "Type your answer here:",
-                key=f"answer_{st.session_state.current_q}"
-            )
-
-            # ---------------------------
-            # Next Question
-            # ---------------------------
-
-            if answer.strip() != "":
-
-                if st.button("Next Question"):
-
-                    st.session_state.answers[st.session_state.current_q] = answer
-                    st.session_state.current_q += 1
-                    st.rerun()
-
-            else:
-                st.info("Please type or record your answer before proceeding.")
-
-        # ---------------------------
-        # Interview Finished
-        # ---------------------------
-
-        else:
-
-            st.success("Interview Completed!")
-            st.session_state.started = False
-
-            st.subheader("Evaluation Report")
-
-            total_interview_score = 0
-            detailed_results = []
-
-            for q_index, answer in st.session_state.answers.items():
-
-                question_data = st.session_state.questions[q_index]
-
-                question = question_data["question"]
-                reference_answer = question_data["reference_answer"]
-
-                result = evaluate_answer(answer, reference_answer)
-
-                total_interview_score += result["total_score"]
-
-                detailed_results.append({
-                    "question": question,
-                    "answer": answer,
-                    "score": result["total_score"],
-                    "feedback": result["feedback"]
-                })
-
-            if detailed_results:
-                overall_score = int(total_interview_score / len(detailed_results))
-            else:
-                overall_score = 0
-
-            st.subheader(f"Overall Interview Score: {overall_score} / 100")
-
-            for idx, res in enumerate(detailed_results, 1):
-
-                st.markdown(f"### Question {idx}")
-                st.write("**Question:**", res["question"])
-                st.write("**Your Answer:**", res["answer"])
-                st.write("**Score:**", res["score"])
-
-                if res["feedback"]:
-                    st.write("**Feedback:**")
-                    for fb in res["feedback"]:
-                        st.write("-", fb)
-
-                st.markdown("---")
+            st.markdown("---")
