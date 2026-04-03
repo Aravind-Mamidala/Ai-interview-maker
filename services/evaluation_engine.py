@@ -30,17 +30,15 @@ FILLER_WORDS = [
 "you know basically","i would say","i would think"
 ]
 
-# -------------------------------
-# KEEP YOUR FULL TECH TERMS ✅
-# -------------------------------
 TECHNICAL_TERMS = [
-# (KEEP YOUR FULL LIST — DO NOT CHANGE)
 "algorithm","data structure","time complexity","space complexity",
 "optimization","recursion","iteration","dynamic programming","multithreading","multiprocessing","thread","process",
 "gil","cpu","cpu-bound","io","io-bound",
 "parallelism","concurrency","memory","shared memory",
-"core","multi-core","synchronization"
-# ... (keep everything exactly same)
+"core","multi-core","synchronization","react","virtual dom","diffing","reconciliation",
+"scaling","load balancing","distributed system",
+"database","caching","api","server","latency",
+"iterator","generator","yield","memory efficient"
 ]
 
 # -------------------------------
@@ -88,22 +86,9 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
         duration = 1
 
     score = 0
-
     feedback = []
     answer_lower = answer.lower()
-
     word_count = len(answer.split())
-
-    # -------------------------------
-    # SAFE TIME
-    # -------------------------------
-    if start_time is None or end_time is None:
-        duration = 1
-    else:
-        duration = end_time - start_time
-
-    if duration <= 0:
-        duration = 1
 
     # -------------------------------
     # FLUENCY
@@ -118,13 +103,16 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
     length_score = min(10, int(word_count / 8))
     score += length_score
 
-    if word_count < 20:
+    if word_count < 10:
         feedback.append("Answer is too short.")
 
     # -------------------------------
     # FILLERS
     # -------------------------------
-    filler_count = sum(answer_lower.count(word) for word in FILLER_WORDS)
+    filler_count = sum(
+        len(re.findall(rf'\b{re.escape(word)}\b', answer_lower))
+        for word in FILLER_WORDS
+    )
     filler_score = max(0, 10 - filler_count * 2)
     score += filler_score
 
@@ -132,13 +120,13 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
         feedback.append("Too many filler words.")
 
     # -------------------------------
-    # STRUCTURE
+    # STRUCTURE (RELAXED)
     # -------------------------------
     sentences = [s for s in re.split(r'[.!?]', answer) if s.strip()]
 
-    if len(sentences) >= 3:
+    if len(sentences) >= 2:
         structure_score = 10
-    elif len(sentences) == 2:
+    elif len(sentences) == 1 and word_count > 12:
         structure_score = 6
     else:
         structure_score = 3
@@ -150,7 +138,6 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
     # EXPLANATION
     # -------------------------------
     avg_len = word_count / max(1, len(sentences))
-
     explanation_score = 5
 
     if avg_len > 8:
@@ -165,32 +152,33 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
     # TECH DEPTH
     # -------------------------------
     tech_hits = sum(1 for term in TECHNICAL_TERMS if term in answer_lower)
-
-    for stem_word in stem_text(answer):
-        if stem_word in STEMMED_TECH_TERMS:
-            tech_hits += 1
-
     tech_score = min(15, tech_hits * 2)
     score += tech_score
-        
 
     # -------------------------------
     # SEMANTIC
     # -------------------------------
+    similarity = 0
     try:
         embeddings = model.encode([answer, reference_answer])
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
-        semantic_score = int(similarity * 40)
+        semantic_score = int(similarity * 35)
+        score += semantic_score
     except:
         semantic_score = 0
-
-    score += semantic_score
 
     if tech_hits < 2 and semantic_score < 20:
         feedback.append("Technical depth appears weak.")
 
     if semantic_score < 15:
         feedback.append("Answer does not align well with expected explanation.")
+
+    # -------------------------------
+    # SPECIAL CASE: IDK
+    # -------------------------------
+    if answer_lower.strip() in ["i dont know", "i don't know", "no idea"]:
+        score = min(score, 10)
+        feedback.append("Answer shows lack of knowledge.")
 
     # -------------------------------
     # VOCAB
@@ -202,11 +190,9 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
     # CONFIDENCE
     # -------------------------------
     confidence = 10
-
     if pauses > 3: confidence -= 2
     if filler_count > 3: confidence -= 2
-    if word_count < 25: confidence -= 2
-
+    if word_count < 15: confidence -= 2
     confidence = max(3, confidence)
 
     emotion = detect_emotion(confidence, fluency, pauses, filler_count, word_count)
@@ -220,34 +206,55 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
     # -------------------------------
     # LOW QUALITY
     # -------------------------------
-    # KEEP YOUR EXISTING FILE EXACTLY
-# ONLY ADD THIS FIX BELOW
+    if word_count < 10 and similarity < 0.4:
+        score = min(score, 30)
+        feedback.append("Answer is irrelevant or lacks depth.")
 
-# SAFE TIME FIX (ADD INSIDE evaluate_answer)
+    # -------------------------------
+    # REPETITION DETECTION
+    # -------------------------------
+    sentences = [s.strip() for s in re.split(r'[.!?]', answer) if s.strip()]
+    if len(sentences) >= 3 and len(set(sentences)) == 1:
+        score = min(score, 20)
+        feedback.append("Answer is repetitive and lacks meaningful content.")
 
-    if start_time is None or end_time is None:
-        duration = 1
-    else:
-        duration = end_time - start_time
+    # -------------------------------
+    # SPAM
+    # -------------------------------
+    words = answer_lower.split()
+    unique_ratio = len(set(words)) / max(1, len(words))
 
-    if duration <= 0:
-        duration = 1
+    if unique_ratio < 0.4:
+        score -= 10
+        feedback.append("Answer contains repetition/spam.")
 
+# -------------------------------
+# GIBBERISH DETECTION (SMART FIX)
+# -------------------------------
+    words = re.findall(r'\b[a-zA-Z]+\b', answer_lower)
 
-    # LOW QUALITY FIX (REPLACE EXISTING BLOCK)
+    if len(words) > 5:   # only check if meaningful length
+        valid_words = sum(1 for w in words if len(w) > 2)
+        valid_ratio = valid_words / len(words)
 
-    is_low = word_count < 10 or semantic_score < 10
+    # ALSO check semantic
+    valid_ratio = 1   # default safe value
 
-    if is_low:
-        if word_count < 5:
-            score = 20
-        elif word_count < 10:
-            score = 30
-        else:
-            score = min(score, 40)
+    if valid_ratio < 0.5 and similarity < 0.3:
+        score = min(score, 20)
+        feedback.append("Answer appears to be meaningless or gibberish.")
+    # -------------------------------
+    # EMOTION FIX
+    # -------------------------------
+    if "lack of knowledge" in " ".join(feedback).lower():
+        emotion = "Uncertain 🤔"
 
-        feedback.append("Response appears irrelevant or random.")
+    if "repetitive" in " ".join(feedback).lower():
+        emotion = "Uncertain 🤔"
 
+    # -------------------------------
+    # FINAL SCORE
+    # -------------------------------
     final_score = min(100, score)
 
     return {
