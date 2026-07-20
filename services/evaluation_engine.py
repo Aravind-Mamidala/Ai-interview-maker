@@ -8,8 +8,10 @@ from nltk.stem import PorterStemmer
 
 stemmer = PorterStemmer()
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
+try:
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+except Exception as e:
+    model = None
 # -------------------------------
 # KEEP YOUR FULL FILLER WORDS ✅
 # -------------------------------
@@ -76,9 +78,9 @@ def detect_emotion(confidence, fluency, pauses, filler_count, word_count):
 # =====================================
 # MAIN FUNCTION
 # =====================================
-def evaluate_answer(answer, reference_answer, start_time, end_time):
-    if start_time is None or end_time is None:
-        duration = 1
+def evaluate_answer(sbert_model, answer, reference_answer, start_time, end_time):
+
+    if start_time is None or end_time is None:        duration = 1
     else:
         duration = end_time - start_time
 
@@ -160,7 +162,8 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
     # -------------------------------
     similarity = 0
     try:
-        embeddings = model.encode([answer, reference_answer])
+        model_to_use = sbert_model if sbert_model else model
+        embeddings = model_to_use.encode([answer, reference_answer])
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
         semantic_score = int(similarity * 35)
         score += semantic_score
@@ -232,13 +235,12 @@ def evaluate_answer(answer, reference_answer, start_time, end_time):
 # GIBBERISH DETECTION (SMART FIX)
 # -------------------------------
     words = re.findall(r'\b[a-zA-Z]+\b', answer_lower)
-
+    valid_ratio = 1   # default safe value
     if len(words) > 5:   # only check if meaningful length
         valid_words = sum(1 for w in words if len(w) > 2)
         valid_ratio = valid_words / len(words)
 
     # ALSO check semantic
-    valid_ratio = 1   # default safe value
 
     if valid_ratio < 0.5 and similarity < 0.3:
         score = min(score, 20)

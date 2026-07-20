@@ -11,7 +11,11 @@ from utils.tts import speak_question
 from services.evaluation_engine import evaluate_answer
 
 
-model = whisper.load_model("base")
+@st.cache_resource
+def load_whisper_model():
+    return whisper.load_model("base")
+
+model = load_whisper_model()
 
 
 def speech_to_text(audio_bytes):
@@ -133,7 +137,11 @@ if st.session_state.started:
                 st.rerun()
 
         audio_file = speak_question(question)
-        st.audio(audio_file)
+
+        if audio_file:
+            st.audio(audio_file)
+        else:
+            st.warning("⚠️ Audio unavailable (check internet)")
 
         answer = st.session_state.get(
             f"answer_{st.session_state.current_q}", 
@@ -173,6 +181,7 @@ if st.session_state.started:
             q_data = st.session_state.questions[i]
 
             result = evaluate_answer(
+                None,
                 data["answer"],
                 q_data["reference_answer"],
                 data["start_time"],
