@@ -1,8 +1,7 @@
 import streamlit as st
 import time
-import whisper
+from faster_whisper import WhisperModel
 import tempfile
-
 from streamlit_mic_recorder import mic_recorder
 
 from services.resume_parser import extract_text_from_pdf, parse_resume
@@ -13,7 +12,11 @@ from services.evaluation_engine import evaluate_answer
 
 @st.cache_resource
 def load_whisper_model():
-    return whisper.load_model("base")
+    return WhisperModel(
+        "base",
+        device="cpu",
+        compute_type="int8"
+    )
 
 model = load_whisper_model()
 
@@ -24,8 +27,11 @@ def speech_to_text(audio_bytes):
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
-        result = model.transcribe(tmp_path)
-        return result["text"]
+        segments, info = model.transcribe(tmp_path)
+
+        text = " ".join(segment.text for segment in segments)
+
+        return text
 
     except Exception as e:
         st.error(f"Speech recognition failed: {e}")
